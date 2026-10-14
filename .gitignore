@@ -1,0 +1,5 @@
+# per-machine state written by the app
+settings.json
+.ndi/
+__pycache__/
+.DS_Store

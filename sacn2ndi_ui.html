@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sACN to NDI</title>
+<style>
+  :root {
+    --bg: #f4f4f2; --panel: #ffffff; --text: #1b1b1a; --muted: #6b6b66; --line: #dddcd6;
+    --field: #f8f8f6; --accent: #2f6fde; --ok: #1f9d55; --warn: #c27c0e; --err: #d0342c;
+    --grid-bg: #111;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212; --panel: #1b1b1b; --text: #ececea; --muted: #9a9a94; --line: #2c2c2c;
+      --field: #232323; --accent: #5b93f5; --ok: #3ec27a; --warn: #e3a23a; --err: #f0645c;
+      --grid-bg: #000;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+          border: 1px solid var(--line); font-size: 12.5px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); }
+  main { display: grid; grid-template-columns: minmax(260px, 420px) 1fr; gap: 20px;
+         padding: 20px; max-width: 1180px; margin: 0 auto; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .preview-wrap { position: sticky; top: 16px; align-self: start; }
+  #grid { display: grid; gap: 2px; background: var(--grid-bg); padding: 2px; border-radius: 6px;
+          aspect-ratio: 1; width: 100%; }
+  #grid div { border-radius: 2px; background: #000; min-width: 0; min-height: 0; }
+  #grid.small-gap { gap: 1px; padding: 1px; }
+  .meta { margin-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+  .meta dt { color: var(--muted); }
+  .meta dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  section + section { margin-top: 14px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+       margin: 0 0 10px; font-weight: 600; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  label.wide { grid-column: 1 / -1; }
+  input, select { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line);
+                  border-radius: 6px; padding: 7px 9px; width: 100%; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 13.5px;
+                padding-top: 18px; }
+  label.check input { width: auto; }
+  .range-row { display: flex; align-items: center; gap: 10px; }
+  .range-row input[type=range] { padding: 0; accent-color: var(--accent); }
+  .range-row output { width: 42px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  #msg { min-height: 20px; margin-top: 14px; font-size: 13px; }
+  #msg.ok { color: var(--ok); } #msg.err { color: var(--err); }
+  .warn { color: var(--warn); font-size: 13px; margin-top: 10px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .offline { position: fixed; inset: auto 16px 16px 16px; background: var(--err); color: #fff;
+             padding: 10px 14px; border-radius: 8px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>sACN → NDI</h1>
+  <div class="pills">
+    <span class="pill"><span class="dot" id="sacnDot"></span><span id="sacnPill">no sACN</span></span>
+    <span class="pill"><span class="dot" id="ndiDot"></span><span id="ndiPill">NDI</span></span>
+  </div>
+</header>
+
+<main>
+  <div class="preview-wrap">
+    <div class="card">
+      <div id="grid"></div>
+      <dl class="meta">
+        <dt>NDI source</dt><dd id="mNdi">-</dd>
+        <dt>Video</dt><dd id="mVideo">-</dd>
+        <dt>Patch</dt><dd id="mPatch">-</dd>
+        <dt>sACN from</dt><dd id="mSrc">-</dd>
+      </dl>
+      <div id="warnings"></div>
+    </div>
+  </div>
+
+  <form class="card" id="form" autocomplete="off" onsubmit="return false">
+    <section>
+      <h2>sACN input</h2>
+      <div class="fields">
+        <label class="wide">Network interface (the port facing the desk)
+          <select name="interface" id="iface"></select>
+        </label>
+        <label>Universe <input name="universe" type="number" min="1" max="63999"></label>
+        <label>Start address <input name="address" type="number" min="1" max="512"></label>
+        <label class="check"><input name="multicast" type="checkbox"> Receive multicast</label>
+        <label class="check"><input name="blackout_on_loss" type="checkbox"> Black out if desk stops</label>
+      </div>
+      <div class="hint">Unicast sent to this computer's IP is always received.</div>
+    </section>
+
+    <section>
+      <h2>Matrix</h2>
+      <div class="fields">
+        <label>Width (pixels) <input name="width" type="number" min="1" max="512"></label>
+        <label>Height (pixels) <input name="height" type="number" min="1" max="512"></label>
+        <label>Colour mode <select name="mode" id="mode"></select></label>
+        <label>Patch runs along
+          <select name="order"><option value="rows">Rows</option><option value="columns">Columns</option></select>
+        </label>
+        <label>Pixel 1 is at
+          <select name="start">
+            <option value="top-left">Top left</option><option value="top-right">Top right</option>
+            <option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option>
+          </select>
+        </label>
+        <label>Pixels per universe <input name="pixels_per_universe" type="number" min="0" max="512" placeholder="auto"></label>
+        <label class="check"><input name="snake" type="checkbox"> Snake (zig-zag) wiring</label>
+      </div>
+    </section>
+
+    <section>
+      <h2>NDI output</h2>
+      <div class="fields">
+        <label class="wide">Source name <input name="name" type="text" maxlength="60"></label>
+        <label>Video px per LED <input name="pixel_size" type="number" min="1" max="256"></label>
+        <label>Gap between LEDs (px) <input name="gap" type="number" min="0" max="255"></label>
+        <label>Frame rate
+          <select name="fps">
+            <option value="25">25</option><option value="29.97">29.97</option><option value="30">30</option>
+            <option value="50">50</option><option value="59.94">59.94</option><option value="60">60</option>
+          </select>
+        </label>
+        <label class="wide">Master
+          <span class="range-row"><input name="master" type="range" min="0" max="1" step="0.01">
+          <output id="masterOut"></output></span>
+        </label>
+      </div>
+    </section>
+    <div id="msg"></div>
+  </form>
+</main>
+<div class="offline" id="offline">Lost connection to sacn2ndi - is it still running?</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const form = $("form");
+let gridSize = "";
+let lastConfig = null;
+
+function fillForm(cfg, interfaces, modes) {
+  const iface = $("iface");
+  const known = interfaces.map(([label, ip]) => ip);
+  iface.innerHTML = interfaces.map(([label, ip]) => `<option value="${ip}">${label}</option>`).join("")
+    + (known.includes(cfg.interface) ? "" : `<option value="${cfg.interface}">${cfg.interface} (not found)</option>`);
+  $("mode").innerHTML = modes.map((m) => `<option>${m}</option>`).join("");
+  const fps = form.elements.fps;
+  if (![...fps.options].some((o) => +o.value === +cfg.fps)) fps.add(new Option(cfg.fps, cfg.fps));
+  for (const el of form.elements) {
+    if (!el.name || !(el.name in cfg)) continue;
+    if (el.type === "checkbox") el.checked = cfg[el.name];
+    else if (el.name === "pixels_per_universe") el.value = cfg[el.name] || "";
+    else if (el.name === "fps") el.value = [...fps.options].find((o) => +o.value === +cfg.fps).value;
+    else el.value = cfg[el.name];
+  }
+  $("masterOut").textContent = Math.round(cfg.master * 100) + "%";
+  lastConfig = cfg;
+}
+
+function drawGrid(cfg, colors) {
+  const g = $("grid");
+  const size = cfg.width + "x" + cfg.height;
+  if (size !== gridSize) {
+    g.style.gridTemplateColumns = `repeat(${cfg.width}, 1fr)`;
+    g.style.gridTemplateRows = `repeat(${cfg.height}, 1fr)`;
+    g.style.aspectRatio = `${cfg.width} / ${cfg.height}`;
+    g.classList.toggle("small-gap", cfg.width > 32 || cfg.height > 32);
+    g.innerHTML = "<div></div>".repeat(cfg.width * cfg.height);
+    gridSize = size;
+  }
+  const cells = g.children;
+  for (let i = 0; i < colors.length; i++) {
+    if (cells[i].dataset.c !== colors[i]) { cells[i].style.background = colors[i]; cells[i].dataset.c = colors[i]; }
+  }
+}
+
+function showStatus(st, cfg) {
+  const live = st.sources.length > 0;
+  $("sacnDot").classList.toggle("on", live);
+  $("sacnPill").textContent = live ? `sACN ${st.pps} pkt/s` : "no sACN";
+  $("ndiDot").classList.toggle("on", st.receivers > 0);
+  $("ndiPill").textContent = st.receivers === 1 ? "1 NDI receiver" : `${st.receivers} NDI receivers`;
+  $("mNdi").textContent = st.ndi_name;
+  $("mVideo").textContent = `${st.video} @ ${cfg.fps} fps`;
+  $("mPatch").textContent = `${st.patch_from} – ${st.patch_to}  (${cfg.mode})`;
+  $("mSrc").textContent = live ? st.sources.join(", ") : "nothing received";
+  $("warnings").innerHTML = st.warnings.map((w) => `<div class="warn">${w.replace(/</g, "&lt;")}</div>`).join("");
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    const s = await r.json();
+    $("offline").style.display = "none";
+    if (!lastConfig) fillForm(s.config, s.interfaces, s.modes);
+    drawGrid(s.config, s.grid);
+    showStatus(s.status, s.config);
+  } catch (e) {
+    $("offline").style.display = "block";
+  }
+  setTimeout(poll, 100);
+}
+
+function message(text, kind) {
+  const m = $("msg");
+  m.textContent = text; m.className = kind;
+  clearTimeout(message.t);
+  if (kind === "ok") message.t = setTimeout(() => { m.textContent = ""; }, 1500);
+}
+
+async function apply(el) {
+  const body = {};
+  body[el.name] = el.type === "checkbox" ? el.checked
+    : el.name === "pixels_per_universe" ? (+el.value || 0) : el.value;
+  try {
+    const r = await fetch("/api/config", { method: "POST", body: JSON.stringify(body) });
+    const s = await r.json();
+    if (!r.ok) {
+      message(s.error, "err");
+      fillForm(lastConfig, [...$("iface").options].map((o) => [o.text, o.value]),
+               [...$("mode").options].map((o) => o.value));
+      return;
+    }
+    fillForm(s.config, s.interfaces, s.modes);
+    message("Saved", "ok");
+  } catch (e) {
+    message("Couldn't reach sacn2ndi", "err");
+  }
+}
+
+form.addEventListener("change", (e) => { if (e.target.name) apply(e.target); });
+form.elements.master.addEventListener("input", (e) => {
+  $("masterOut").textContent = Math.round(e.target.value * 100) + "%";
+});
+form.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.name) e.target.blur(); });
+poll();
+</script>
+</body>
+</html>
