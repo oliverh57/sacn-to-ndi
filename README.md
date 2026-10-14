@@ -69,3 +69,7 @@ only one of them, so use `--multicast` when testing.
   config into `.ndi/` that sets the machine name to the Mac's network name. To choose
   your own name, use `--machine-name`.
 - The settings page only listens on `localhost`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
